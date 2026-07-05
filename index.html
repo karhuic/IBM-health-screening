@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health Screening Queue · Multi‑User</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        /* ----- Reset & variables ----- */
+        :root {
+            --primary: #0d9488;
+            --primary-dark: #0f766e;
+            --primary-light: #ccfbf1;
+            --primary-bg: #f0fdfa;
+            --secondary: #2563eb;
+            --secondary-light: #dbeafe;
+            --success: #16a34a;
+            --warning: #f59e0b;
+            --danger: #dc2626;
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.08), 0 4px 10px rgba(0,0,0,0.04);
+            --radius: 12px;
+            --radius-sm: 6px;
+            --transition: all 0.25s ease;
+            --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Oxygen, Ubuntu, sans-serif;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: var(--font);
+            background: var(--gray-50);
+            color: var(--gray-800);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .app-container { max-width: 1100px; width: 100%; margin: 0 auto; }
+
+        /* ----- Header ----- */
+        .header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+            color: #fff;
+            border-radius: var(--radius);
+            padding: 24px 32px;
+            margin-bottom: 28px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: var(--shadow-lg);
+        }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .header-icon { width: 48px; height: 48px; background: rgba(255,255,255,0.18); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; }
+        .header-title h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
+        .header-title p { font-size: 14px; opacity: 0.85; margin-top: 2px; }
+        .header-right { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+        .header-status { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.15); padding: 6px 16px 6px 12px; border-radius: 30px; font-size: 14px; font-weight: 500; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; animation: pulse-dot 2s ease-in-out infinite; }
+        .status-dot.closed { background: #f87171; animation: none; }
+        @keyframes pulse-dot { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(0.85); } }
+        .header-date { font-size: 14px; opacity: 0.9; background: rgba(255,255,255,0.12); padding: 6px 14px; border-radius: 20px; }
+        .connection-badge { font-size: 12px; background: rgba(255,255,255,0.2); padding: 4px 12px; border-radius: 30px; display: flex; align-items: center; gap: 6px; }
+        .connection-badge .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .connection-badge .dot.online { background: #4ade80; }
+        .connection-badge .dot.offline { background: #f87171; }
+
+        /* ----- Grid & Cards ----- */
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        @media (max-width: 820px) { .main-grid { grid-template-columns: 1fr; } }
+        .card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 24px 28px; transition: var(--transition); border: 1px solid var(--gray-200); }
+        .card:hover { box-shadow: var(--shadow-lg); }
+        .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 8px; }
+        .card-title { font-size: 18px; font-weight: 600; color: var(--gray-800); display: flex; align-items: center; gap: 10px; }
+        .card-title .badge { font-size: 12px; font-weight: 600; background: var(--primary-light); color: var(--primary-dark); padding: 2px 10px; border-radius: 30px; }
+
+        /* ----- Queue Status ----- */
+        .queue-status { text-align: center; padding: 12px 0 6px; }
+        .current-number { font-size: 82px; font-weight: 800; color: var(--primary); line-height: 1; letter-spacing: -2px; transition: var(--transition); }
+        .current-number.serving { color: var(--secondary); }
+        .current-label { font-size: 16px; font-weight: 500; color: var(--gray-500); margin-top: 4px; letter-spacing: 0.5px; }
+        .queue-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+        .stat-item { background: var(--gray-50); padding: 14px 10px; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); }
+        .stat-number { font-size: 26px; font-weight: 700; color: var(--gray-800); }
+        .stat-label { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+        .stat-number.warning { color: var(--warning); }
+        .stat-number.success { color: var(--success); }
+
+        /* ----- Registration Form ----- */
+        .reg-form { display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        @media (max-width: 500px) { .form-row { grid-template-columns: 1fr; } }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 14px; font-weight: 500; color: var(--gray-600); }
+        .form-group input { padding: 10px 14px; border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 15px; transition: var(--transition); background: #fff; font-family: var(--font); }
+        .form-group input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(13,148,136,0.15); }
+
+        /* ----- Buttons ----- */
+        .btn { padding: 11px 24px; border: none; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; cursor: pointer; transition: var(--transition); font-family: var(--font); display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-primary { background: var(--primary); color: #fff; }
+        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(13,148,136,0.35); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+        .btn-secondary { background: var(--secondary); color: #fff; }
+        .btn-secondary:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,0.35); }
+        .btn-success { background: var(--success); color: #fff; }
+        .btn-success:hover { background: #15803d; transform: translateY(-1px); }
+        .btn-danger { background: var(--danger); color: #fff; }
+        .btn-danger:hover { background: #b91c1c; transform: translateY(-1px); }
+        .btn-outline { background: transparent; color: var(--gray-600); border: 1.5px solid var(--gray-300); }
+        .btn-outline:hover { background: var(--gray-50); border-color: var(--gray-400); }
+        .btn-sm { padding: 6px 14px; font-size: 13px; }
+        .btn-block { width: 100%; }
+        .btn-group { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        /* ----- Your Number Box ----- */
+        .your-number-box { margin-top: 18px; padding: 18px 20px; background: var(--primary-bg); border-radius: var(--radius-sm); border: 2px solid var(--primary-light); text-align: center; display: none; }
+        .your-number-box.active { display: block; animation: fadeSlideUp 0.4s ease; }
+        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+        .your-number-box .number { font-size: 48px; font-weight: 800; color: var(--primary); }
+        .your-number-box .info { font-size: 15px; color: var(--gray-600); margin-top: 4px; }
+        .your-number-box .position { font-weight: 600; color: var(--gray-700); }
+
+        /* ----- Queue List ----- */
+        .queue-list { max-height: 280px; overflow-y: auto; margin-top: 12px; border: 1px solid var(--gray-200); border-radius: var(--radius-sm); }
+        .queue-list::-webkit-scrollbar { width: 5px; }
+        .queue-list::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 10px; }
+        .queue-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--gray-100); font-size: 14px; }
+        .queue-item:last-child { border-bottom: none; }
+        .queue-item .qnum { font-weight: 700; color: var(--primary); min-width: 40px; }
+        .queue-item .qname { flex: 1; margin: 0 12px; font-weight: 500; }
+        .queue-item .qstatus { font-size: 12px; padding: 2px 12px; border-radius: 30px; font-weight: 600; }
+        .qstatus.waiting { background: var(--secondary-light); color: var(--secondary); }
+        .qstatus.called { background: #fef3c7; color: #b45309; }
+        .qstatus.completed { background: #dcfce7; color: #15803d; }
+        .qstatus.cancelled { background: #fee2e2; color: #b91c1c; }
+        .empty-msg { text-align: center; color: var(--gray-400); padding: 30px 10px; font-size: 15px; }
+
+        /* ----- Admin Panel ----- */
+        .admin-toggle { margin-top: 24px; text-align: center; }
+        .admin-toggle .btn { background: transparent; color: var(--gray-400); border: 1px dashed var(--gray-300); font-size: 13px; }
+        .admin-toggle .btn:hover { background: var(--gray-50); color: var(--gray-600); border-color: var(--gray-400); }
+        .admin-panel { display: none; margin-top: 16px; border-top: 2px dashed var(--gray-200); padding-top: 20px; }
+        .admin-panel.active { display: block; animation: fadeSlideUp 0.3s ease; }
+        .admin-login { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; background: var(--gray-50); padding: 16px 20px; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); }
+        .admin-login input { padding: 8px 14px; border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); font-size: 14px; flex: 1; min-width: 150px; font-family: var(--font); }
+        .admin-login input:focus { outline: none; border-color: var(--secondary); }
+        .admin-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 16px; }
+        @media (max-width: 600px) { .admin-dashboard { grid-template-columns: 1fr; } }
+        .admin-stat { background: var(--gray-50); padding: 14px 18px; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); text-align: center; }
+        .admin-stat .num { font-size: 28px; font-weight: 700; color: var(--gray-800); }
+        .admin-stat .label { font-size: 13px; color: var(--gray-500); }
+        .admin-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 6px; }
+        .admin-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--gray-200); border-radius: var(--radius-sm); margin-top: 10px; }
+        .admin-list .queue-item .btn-sm { margin-left: 6px; }
+        .admin-list .queue-item { padding: 8px 14px; flex-wrap: wrap; gap: 4px; }
+
+        /* ----- Toast ----- */
+        .toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 9999; max-width: 380px; width: 100%; }
+        .toast { background: var(--gray-900); color: #fff; padding: 14px 20px; border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); font-size: 14px; animation: slideIn 0.3s ease; display: flex; align-items: center; gap: 12px; }
+        .toast.success { background: var(--success); }
+        .toast.warning { background: var(--warning); color: var(--gray-900); }
+        .toast.error { background: var(--danger); }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+        .toast .close-toast { margin-left: auto; cursor: pointer; opacity: 0.7; font-size: 18px; line-height: 1; background: none; border: none; color: inherit; }
+
+        /* ----- Footer ----- */
+        .footer { margin-top: 40px; text-align: center; font-size: 13px; color: var(--gray-400); border-top: 1px solid var(--gray-200); padding-top: 20px; }
+
+        /* ----- Responsive tweaks ----- */
+        @media (max-width: 640px) {
+            .header { padding: 16px 18px; flex-direction: column; align-items: stretch; gap: 12px; }
+            .header-left { gap: 10px; }
+            .header-title h1 { font-size: 18px; }
+            .header-right { justify-content: space-between; }
+            .card { padding: 18px 16px; }
+            .current-number { font-size: 56px; }
+            .queue-stats { grid-template-columns: 1fr 1fr; }
+            .stat-item:last-child { grid-column: span 2; }
+            .toast-container { left: 16px; right: 16px; max-width: none; }
+        }
+        @media (max-width: 400px) {
+            .current-number { font-size: 42px; }
+            .queue-stats { grid-template-columns: 1fr; }
+            .stat-item:last-child { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="header-icon">🩺</div>
+            <div class="header-title">
+                <h1>Health Screening Queue</h1>
+                <p>Multi‑user · Real‑time sync</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="header-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusLabel">Open</span>
+            </div>
+            <div class="header-date" id="headerDate"></div>
+            <div class="connection-badge">
+                <span class="dot online" id="connDot"></span>
+                <span id="connLabel">Connected</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+        <!-- Left column -->
+        <div>
+            <!-- Queue Status -->
+            <div class="card">
+                <div class="queue-status">
+                    <div class="current-label">Now Serving</div>
+                    <div class="current-number" id="currentNumber">—</div>
+                    <div style="margin-top:6px; font-size:14px; color:var(--gray-500);">
+                        <span id="currentName"></span>
+                    </div>
+                </div>
+                <div class="queue-stats">
+                    <div class="stat-item">
+                        <div class="stat-number" id="aheadCount">0</div>
+                        <div class="stat-label">People Ahead</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number warning" id="waitTime">—</div>
+                        <div class="stat-label">Est. Wait (min)</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number success" id="totalRegistered">0</div>
+                        <div class="stat-label">Total Registered</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Registration -->
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">
+                    <div class="card-title">📋 Get Your Number</div>
+                    <span class="badge" id="regBadge">Open</span>
+                </div>
+                <form class="reg-form" id="regForm" autocomplete="off">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="regName">Full Name</label>
+                            <input type="text" id="regName" placeholder="e.g. Ahmad bin Ali" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="regPhone">Phone Number</label>
+                            <input type="tel" id="regPhone" placeholder="e.g. 012-3456789" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block" id="regBtn">➜ Get Queue Number</button>
+                </form>
+                <div class="your-number-box" id="yourNumberBox">
+                    <div style="font-size:14px; color:var(--gray-500);">Your Queue Number</div>
+                    <div class="number" id="yourNumber">—</div>
+                    <div class="info">
+                        You are <span class="position" id="yourPosition">—</span> in line.<br>
+                        Estimated wait: <strong id="yourWait">—</strong> minutes.
+                    </div>
+                    <div style="margin-top:10px; font-size:13px; color:var(--gray-500);">
+                        <span id="regTime"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Check Status -->
+            <div class="card" style="margin-top:20px;">
+                <div class="card-header">
+                    <div class="card-title">🔍 Check Your Status</div>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <input type="number" id="checkNumber" placeholder="Enter your number"
+                        style="flex:1; padding:10px 14px; border:1.5px solid var(--gray-200); border-radius:var(--radius-sm); font-size:15px; font-family:var(--font); min-width:120px;">
+                    <button class="btn btn-secondary" id="checkBtn">Check</button>
+                </div>
+                <div id="checkResult" style="margin-top:12px; font-size:15px; min-height:28px; color:var(--gray-600);"></div>
+            </div>
+        </div>
+
+        <!-- Right column -->
+        <div>
+            <!-- Queue List -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📊 Queue Status</div>
+                    <span style="font-size:13px; color:var(--gray-400);" id="queueCount">0 registered</span>
+                </div>
+                <div class="queue-list" id="queueList">
+                    <div class="empty-msg">No one in queue yet.</div>
+                </div>
+            </div>
+
+            <!-- Admin Panel Toggle -->
+            <div class="admin-toggle">
+                <button class="btn btn-outline btn-sm" id="adminToggleBtn">🔐 Admin Panel</button>
+            </div>
+            <div class="admin-panel" id="adminPanel">
+                <div class="admin-login" id="adminLogin">
+                    <span style="font-weight:500;">Admin Access</span>
+                    <input type="password" id="adminPassword" placeholder="Enter password">
+                    <button class="btn btn-secondary btn-sm" id="adminLoginBtn">Login</button>
+                    <span style="font-size:12px; color:var(--gray-400);">default: admin123</span>
+                </div>
+                <div id="adminDashboard" style="display:none;">
+                    <div class="admin-dashboard">
+                        <div class="admin-stat"><div class="num" id="adminTotal">0</div><div class="label">Total Registered</div></div>
+                        <div class="admin-stat"><div class="num" id="adminWaiting">0</div><div class="label">Waiting</div></div>
+                        <div class="admin-stat"><div class="num" id="adminCalled">0</div><div class="label">Called</div></div>
+                        <div class="admin-stat"><div class="num" id="adminCompleted">0</div><div class="label">Completed</div></div>
+                    </div>
+                    <div class="admin-actions">
+                        <button class="btn btn-success" id="callNextBtn">📢 Call Next</button>
+                        <button class="btn btn-outline btn-sm" id="resetQueueBtn" style="color:var(--danger);border-color:var(--danger);">↺ Reset Queue</button>
+                        <button class="btn btn-outline btn-sm" id="toggleRegBtn">Toggle Registration</button>
+                        <button class="btn btn-outline btn-sm" id="adminLogoutBtn">Logout</button>
+                    </div>
+                    <div style="margin-top:12px; font-size:14px; font-weight:500; color:var(--gray-600);">All Participants</div>
+                    <div class="admin-list" id="adminList"><div class="empty-msg">No participants.</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        Health Screening Program &bull; Multi‑user Queue System &bull;
+        <span id="footerTime"></span>
+    </footer>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    (function() {
+        'use strict';
+
+        const ADMIN_PASSWORD = 'admin123';
+        const AVG_WAIT_PER_PERSON = 3;
+
+        let queue = [];
+        let currentServing = null;
+        let isRegistrationOpen = true;
+        let isAdminLoggedIn = false;
+        let myNumber = null;
+
+        // Socket.IO connection (auto‑connects to same origin)
+        const socket = io();
+
+        const $ = (sel) => document.querySelector(sel);
+        const $$ = (sel) => document.querySelectorAll(sel);
+
+        const dom = {
+            currentNumber: $('#currentNumber'),
+            currentName: $('#currentName'),
+            aheadCount: $('#aheadCount'),
+            waitTime: $('#waitTime'),
+            totalRegistered: $('#totalRegistered'),
+            queueList: $('#queueList'),
+            queueCount: $('#queueCount'),
+            regForm: $('#regForm'),
+            regName: $('#regName'),
+            regPhone: $('#regPhone'),
+            regBtn: $('#regBtn'),
+            regBadge: $('#regBadge'),
+            yourNumberBox: $('#yourNumberBox'),
+            yourNumber: $('#yourNumber'),
+            yourPosition: $('#yourPosition'),
+            yourWait: $('#yourWait'),
+            regTime: $('#regTime'),
+            checkNumber: $('#checkNumber'),
+            checkBtn: $('#checkBtn'),
+            checkResult: $('#checkResult'),
+            adminToggleBtn: $('#adminToggleBtn'),
+            adminPanel: $('#adminPanel'),
+            adminLogin: $('#adminLogin'),
+            adminPassword: $('#adminPassword'),
+            adminLoginBtn: $('#adminLoginBtn'),
+            adminDashboard: $('#adminDashboard'),
+            adminTotal: $('#adminTotal'),
+            adminWaiting: $('#adminWaiting'),
+            adminCalled: $('#adminCalled'),
+            adminCompleted: $('#adminCompleted'),
+            adminList: $('#adminList'),
+            callNextBtn: $('#callNextBtn'),
+            resetQueueBtn: $('#resetQueueBtn'),
+            toggleRegBtn: $('#toggleRegBtn'),
+            adminLogoutBtn: $('#adminLogoutBtn'),
+            statusDot: $('#statusDot'),
+            statusLabel: $('#statusLabel'),
+            headerDate: $('#headerDate'),
+            footerTime: $('#footerTime'),
+            toastContainer: $('#toastContainer'),
+            connDot: $('#connDot'),
+            connLabel: $('#connLabel'),
+        };
+
+        function formatTime(ts) {
+            const d = new Date(ts);
+            return d.toLocaleString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: 'short' });
+        }
+        function formatDate() {
+            const d = new Date();
+            return d.toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        }
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showToast(message, type = 'info') {
+            const container = dom.toastContainer;
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<span>${message}</span><button class="close-toast">&times;</button>`;
+            toast.querySelector('.close-toast').addEventListener('click', () => toast.remove());
+            container.appendChild(toast);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 6000);
+        }
+
+        function renderQueueList() {
+            const list = dom.queueList;
+            const waiting = queue.filter(q => q.status === 'waiting');
+            const called = queue.filter(q => q.status === 'called');
+            const sorted = [...waiting, ...called].sort((a, b) => a.number - b.number);
+            if (sorted.length === 0) {
+                list.innerHTML = `<div class="empty-msg">No one in queue yet.</div>`;
+            } else {
+                list.innerHTML = sorted.map(q => `
+                    <div class="queue-item">
+                        <span class="qnum">#${q.number}</span>
+                        <span class="qname">${escapeHtml(q.name)}</span>
+                        <span class="qstatus ${q.status}">${q.status}</span>
+                    </div>
+                `).join('');
+            }
+            dom.queueCount.textContent = `${queue.length} registered`;
+        }
+
+        function renderAdminList() {
+            const list = dom.adminList;
+            if (!isAdminLoggedIn) {
+                list.innerHTML = `<div class="empty-msg">Login to manage.</div>`;
+                return;
+            }
+            const sorted = [...queue].sort((a, b) => a.number - b.number);
+            if (sorted.length === 0) {
+                list.innerHTML = `<div class="empty-msg">No participants.</div>`;
+                return;
+            }
+            list.innerHTML = sorted.map(q => `
+                <div class="queue-item">
+                    <span class="qnum">#${q.number}</span>
+                    <span class="qname">${escapeHtml(q.name)}</span>
+                    <span style="font-size:12px; color:var(--gray-400);">${q.phone || ''}</span>
+                    <span class="qstatus ${q.status}">${q.status}</span>
+                    <div style="display:flex; gap:4px; flex-wrap:wrap; margin-left:auto;">
+                        ${q.status === 'waiting' ? `<button class="btn btn-secondary btn-sm call-btn" data-id="${q.id}">Call</button>` : ''}
+                        ${q.status === 'called' ? `<button class="btn btn-success btn-sm complete-btn" data-id="${q.id}">✅ Done</button>` : ''}
+                        ${q.status === 'waiting' || q.status === 'called' ? `<button class="btn btn-danger btn-sm cancel-btn" data-id="${q.id}">✕</button>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            list.querySelectorAll('.call-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    socket.emit('admin-call', { id: btn.dataset.id });
+                });
+            });
+            list.querySelectorAll('.complete-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    socket.emit('admin-complete', { id: btn.dataset.id });
+                });
+            });
+            list.querySelectorAll('.cancel-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (confirm('Remove this participant from the queue?')) {
+                        socket.emit('admin-cancel', { id: btn.dataset.id });
+                    }
+                });
+            });
+        }
+
+        function renderStats() {
+            const waiting = queue.filter(q => q.status === 'waiting');
+            const called = queue.filter(q => q.status === 'called');
+            const completed = queue.filter(q => q.status === 'completed');
+            const total = queue.length;
+
+            dom.totalRegistered.textContent = total;
+            dom.aheadCount.textContent = waiting.length;
+
+            if (currentServing) {
+                dom.currentNumber.textContent = currentServing.number;
+                dom.currentNumber.className = 'current-number serving';
+                dom.currentName.textContent = currentServing.name || '';
+            } else {
+                dom.currentNumber.textContent = waiting.length > 0 ? '—' : '—';
+                dom.currentNumber.className = 'current-number';
+                dom.currentName.textContent = waiting.length > 0 ? 'Waiting...' : 'No one in queue';
+            }
+
+            const waitMins = waiting.length * AVG_WAIT_PER_PERSON;
+            dom.waitTime.textContent = waiting.length > 0 ? waitMins : '—';
+
+            if (isAdminLoggedIn) {
+                dom.adminTotal.textContent = total;
+                dom.adminWaiting.textContent = waiting.length;
+                dom.adminCalled.textContent = called.length;
+                dom.adminCompleted.textContent = completed.length;
+            }
+
+            dom.regBadge.textContent = isRegistrationOpen ? 'Open' : 'Closed';
+            dom.regBadge.style.background = isRegistrationOpen ? 'var(--primary-light)' : '#fee2e2';
+            dom.regBadge.style.color = isRegistrationOpen ? 'var(--primary-dark)' : '#b91c1c';
+
+            dom.statusDot.className = 'status-dot' + (isRegistrationOpen ? '' : ' closed');
+            dom.statusLabel.textContent = isRegistrationOpen ? 'Open' : 'Closed';
+
+            dom.regBtn.disabled = !isRegistrationOpen;
+        }
+
+        function renderAll() {
+            renderQueueList();
+            renderAdminList();
+            renderStats();
+            updateYourNumberDisplay();
+        }
+
+        function updateYourNumberDisplay() {
+            const box = dom.yourNumberBox;
+            if (myNumber === null) {
+                box.classList.remove('active');
+                return;
+            }
+            const item = queue.find(q => q.number === myNumber);
+            if (!item) {
+                box.classList.remove('active');
+                myNumber = null;
+                return;
+            }
+            if (item.status === 'completed') {
+                box.classList.add('active');
+                box.innerHTML = `
+                    <div style="font-size:16px; font-weight:600; color:var(--success);">✅ You've been served!</div>
+                    <div style="font-size:14px; color:var(--gray-500); margin-top:4px;">Thank you for participating.</div>
+                `;
+                return;
+            }
+            if (item.status === 'cancelled') {
+                box.classList.remove('active');
+                myNumber = null;
+                return;
+            }
+            const waiting = queue.filter(q => q.status === 'waiting' && q.number < myNumber).length;
+            const waitMins = waiting * AVG_WAIT_PER_PERSON;
+            box.classList.add('active');
+            dom.yourNumber.textContent = `#${myNumber}`;
+            dom.yourPosition.textContent = waiting === 0 ? 'next in line' : `${waiting} people ahead`;
+            dom.yourWait.textContent = waitMins;
+            dom.regTime.textContent = `Registered at ${formatTime(item.registeredAt)}`;
+        }
+
+        // ---- Socket events ----
+        socket.on('connect', () => {
+            dom.connDot.className = 'dot online';
+            dom.connLabel.textContent = 'Connected';
+            showToast('🟢 Connected to server', 'success');
+        });
+
+        socket.on('disconnect', () => {
+            dom.connDot.className = 'dot offline';
+            dom.connLabel.textContent = 'Offline';
+            showToast('🔴 Disconnected from server', 'error');
+        });
+
+        socket.on('state-update', (data) => {
+            queue = data.queue || [];
+            currentServing = data.currentServing || null;
+            isRegistrationOpen = data.isRegistrationOpen !== undefined ? data.isRegistrationOpen : true;
+            renderAll();
+        });
+
+        socket.on('registration-response', (res) => {
+            if (res.success) {
+                myNumber = res.number;
+                showToast(`✅ #${res.number} — ${res.name} registered!`, 'success');
+                renderAll();
+                dom.regForm.reset();
+                dom.regName.focus();
+            } else {
+                showToast(res.message || 'Registration failed', 'error');
+            }
+        });
+
+        socket.on('admin-action-response', (res) => {
+            if (res.success) {
+                showToast(res.message, 'success');
+            } else {
+                showToast(res.message || 'Action failed', 'error');
+            }
+        });
+
+        socket.on('server-toast', (data) => {
+            showToast(data.message, data.type || 'info');
+        });
+
+        // ---- Registration form ----
+        dom.regForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = dom.regName.value.trim();
+            const phone = dom.regPhone.value.trim();
+            if (!name) { showToast('Please enter your name.', 'warning'); dom.regName.focus(); return; }
+            if (!phone) { showToast('Please enter your phone number.', 'warning'); dom.regPhone.focus(); return; }
+            socket.emit('register', { name, phone });
+        });
+
+        // ---- Check status ----
+        dom.checkBtn.addEventListener('click', () => {
+            const num = parseInt(dom.checkNumber.value);
+            if (!num || num < 1) {
+                showToast('Please enter a valid queue number.', 'warning');
+                return;
+            }
+            const item = queue.find(q => q.number === num);
+            const result = dom.checkResult;
+            if (!item) {
+                result.innerHTML = `<span style="color:var(--danger);">❌ No participant found with #${num}.</span>`;
+                return;
+            }
+            const statusMap = {
+                waiting: '⏳ Waiting in queue',
+                called: '📢 Called — please proceed!',
+                completed: '✅ Completed',
+                cancelled: '❌ Cancelled / Removed',
+            };
+            const waiting = queue.filter(q => q.status === 'waiting' && q.number < num).length;
+            let extra = '';
+            if (item.status === 'waiting') {
+                extra = ` · ${waiting} ahead · ~${waiting * AVG_WAIT_PER_PERSON} min`;
+            }
+            result.innerHTML = `
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <span style="font-weight:700; color:var(--primary);">#${item.number}</span>
+                    <span>${escapeHtml(item.name)}</span>
+                    <span style="font-size:13px; color:var(--gray-400);">${item.phone || ''}</span>
+                    <span style="font-weight:500; color:${item.status === 'waiting' ? 'var(--secondary)' : item.status === 'called' ? 'var(--warning)' : item.status === 'completed' ? 'var(--success)' : 'var(--danger)'};">${statusMap[item.status] || item.status}</span>
+                    <span style="font-size:12px; color:var(--gray-400);">${extra}</span>
+                </div>
+            `;
+        });
+        dom.checkNumber.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.checkBtn.click(); });
+
+        // ---- Admin login ----
+        dom.adminLoginBtn.addEventListener('click', () => {
+            if (dom.adminPassword.value === ADMIN_PASSWORD) {
+                isAdminLoggedIn = true;
+                dom.adminLogin.style.display = 'none';
+                dom.adminDashboard.style.display = 'block';
+                renderAll();
+                showToast('🔐 Admin logged in.', 'success');
+            } else {
+                showToast('❌ Incorrect password.', 'error');
+                dom.adminPassword.value = '';
+            }
+        });
+        dom.adminPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') dom.adminLoginBtn.click(); });
+
+        dom.adminLogoutBtn.addEventListener('click', () => {
+            isAdminLoggedIn = false;
+            dom.adminLogin.style.display = 'flex';
+            dom.adminDashboard.style.display = 'none';
+            dom.adminPassword.value = '';
+            renderAll();
+            showToast('Logged out.', 'info');
+        });
+
+        // ---- Admin actions ----
+        dom.callNextBtn.addEventListener('click', () => socket.emit('admin-call-next'));
+        dom.resetQueueBtn.addEventListener('click', () => {
+            if (!confirm('⚠️ This will reset the entire queue. All data will be lost. Are you sure?')) return;
+            if (!confirm('Really? This cannot be undone!')) return;
+            socket.emit('admin-reset');
+            myNumber = null;
+            dom.yourNumberBox.classList.remove('active');
+        });
+        dom.toggleRegBtn.addEventListener('click', () => socket.emit('admin-toggle-reg'));
+
+        // ---- Admin panel toggle ----
+        dom.adminToggleBtn.addEventListener('click', () => {
+            dom.adminPanel.classList.toggle('active');
+            dom.adminToggleBtn.textContent = dom.adminPanel.classList.contains('active') ? '🔒 Close Admin' : '🔐 Admin Panel';
+            if (dom.adminPanel.classList.contains('active') && isAdminLoggedIn) renderAdminList();
+        });
+
+        // ---- Keyboard shortcut ----
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ' && isAdminLoggedIn && dom.adminPanel.classList.contains('active')) {
+                e.preventDefault();
+                socket.emit('admin-call-next');
+            }
+        });
+
+        // ---- Init ----
+        function init() {
+            dom.headerDate.textContent = formatDate();
+            function updateFooterTime() {
+                dom.footerTime.textContent = new Date().toLocaleString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            }
+            updateFooterTime();
+            setInterval(updateFooterTime, 1000);
+
+            socket.emit('get-state');
+            console.log('🏥 Multi-user queue system initialized.');
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+</script>
+</body>
+</html>
